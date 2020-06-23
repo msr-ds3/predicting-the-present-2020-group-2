@@ -1,0 +1,78 @@
+---
+title: "Group2.Rmd"
+author: "Tamar Yastrab"
+date: "6/23/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r setup}
+library(tidyverse)
+library(scales)
+library(modelr)
+library(lubridate)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+mvp <- read.csv("merged.csv", header=T) %>% mutate(last_month = lag(sales), last_year = lag(sales, 12)) %>% mutate(row_num = row_number()) %>% mutate(log_sales = log(sales)) %>% mutate(ymd = as.Date(Period, "%Y/%m/%d"))
+
+```
+
+```{r mvp model}
+
+mvp_base_model <- lm(sales ~ last_month + last_year,  data=mvp)
+summary(mvp_base_model)
+
+mvp_trends_model <- lm(sales ~ last_month + last_year + suvs + insurance,  data=mvp)
+summary(mvp_trends_model)
+
+```
+
+```{r mvp predictions}
+base_prediction = c()
+trends_prediction = c()
+
+K <- 17: nrow(mvp) # dates 
+for (k in K) {
+  
+  test_data<- mvp %>% filter(row_num <= k) # only uses previous data
+    model_base <- lm(log_sales ~ last_month + last_year ,  data=test_data)
+    model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance,  data=test_data)
+    
+    base_prediction[k] <- predict(model_base, test_data)[k]
+    trends_prediction[k] <- predict(model_trends, test_data)[k]
+
+}
+
+```
+
+```{r mvp ggplot}
+
+prediction_data <- data.frame(base_prediction, trends_prediction) %>% na.omit(base_prediction) %>% mutate(row_num = row_number() + 16)
+
+total <- mvp %>% left_join(prediction_data, by = "row_num")
+
+ggplot(total, aes(x = ymd, y = log_sales)) +
+  geom_line() +
+  geom_line(aes(y = trends_prediction), color = "red", linetype = "dotdash") +
+  geom_line(aes(y = base_prediction), color="grey") +
+  xlab('Index') +
+  ylab('log(mvp)') +
+  scale_y_continuous()
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
