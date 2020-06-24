@@ -20,6 +20,7 @@ library(tidyverse)
 library(scales)
 library(modelr)
 library(lubridate)
+library(dplyr)
 ```
 
 ## Including Plots
@@ -74,5 +75,22 @@ ggplot(total, aes(x = ymd, y = log_sales)) +
   scale_y_continuous()
 
 ```
+
+```{r real data from link}
+#real_base <- read_tsv("base_mvp.tsv") %>% filter(JAN >= 60000)
+real_trends_mvp <- left_join(read.csv("real_trends_insurance.csv", header = T), 
+                         read.csv("real_trends_trucks.csv", header = T), 
+                         by = "Month") %>% 
+                rename("insurance" = Geo..United.States.x, "suvs" = Geo..United.States.y) 
+real_base_mvp <- read.csv("real_base_autos.csv") 
+
+```
+
+
+```{r plot}
+
+
+```
+
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
