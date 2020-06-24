@@ -1,6 +1,6 @@
 ---
 title: "Group2.Rmd"
-author: "Tamar Yastrab"
+author: "Tamar Yastrab & Hasanat Jahan"
 date: "6/23/2020"
 output: html_document
 ---
@@ -23,15 +23,14 @@ library(lubridate)
 library(dplyr)
 ```
 
-## Including Plots
+# Reproduce the findings based on author-provided data
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
+Read in the given data
+```{r Downloading the data}
 mvp <- read.csv("merged.csv", header=T) %>% mutate(last_month = lag(sales), last_year = lag(sales, 12)) %>% mutate(row_num = row_number()) %>% mutate(log_sales = log(sales)) %>% mutate(ymd = as.Date(Period, "%Y/%m/%d"))
-
 ```
 
+We created 2 models for the mvp data. The first only considers the previous month and the same month one year prior, and the second considers additional factors (insurance, suvs) provided by the trends data. 
 ```{r mvp model}
 
 mvp_base_model <- lm(sales ~ last_month + last_year,  data=mvp)
@@ -42,23 +41,48 @@ summary(mvp_trends_model)
 
 ```
 
+We created 2 vectors to keep track of the predictions made by the two models. We loop from 2005-06-01 to 2011-07-01 as indicated by the paper. For each iteration, we make a linear model that will serve as the base for a prediction and then add the prediction to the corresponding vector. 
 ```{r mvp predictions}
 base_prediction = c()
 trends_prediction = c()
+mae_base_prediction = c()
+mae_trends_prediction = c()
 
-K <- 17: nrow(mvp) # dates 
+K <- 17: nrow(mvp) # dates
+
 for (k in K) {
-  
   test_data<- mvp %>% filter(row_num <= k) # only uses previous data
-    model_base <- lm(log_sales ~ last_month + last_year ,  data=test_data)
-    model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance,  data=test_data)
-    
-    base_prediction[k] <- predict(model_base, test_data)[k]
-    trends_prediction[k] <- predict(model_trends, test_data)[k]
+  model_base <- lm(log_sales ~ last_month + last_year , data=test_data)
+  model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance, data=test_data)
+  
+  base_prediction[k] <- predict(model_base, test_data)[k]
+  trends_prediction[k] <- predict(model_trends, test_data)[k]
+
+  # calculate mae for trends and baseline
+  mae_base_prediction[k] <- mean(abs(predict(model_base, test_data)[k] - test_data$log_sales))
+# calculate mae for trends and baseline
+  mae_trends_prediction[k] <- mean(abs(predict(model_trends, test_data)[k] - test_data$log_sales))
 
 }
-
 ```
+
+```{r calculating error}
+mae_data <- data.frame(mae_base_prediction, mae_trends_prediction) %>%   
+  na.omit(mae_base_prediction) %>% mutate(row_num = row_number() + 16)
+
+mae_total <- mvp %>% left_join(mae_data, by = "row_num")
+
+colors <- c("mae_trends_prediction" = "blue", "mae_base_prediction" = "black")
+
+ggplot(mae_total, aes(x = ymd, y = mae_base_prediction)) +
+  geom_line() +
+  geom_line(aes(y = mae_trends_prediction, color = "mae_trends_prediction"), alpha= 0.4) +
+  geom_line(aes(y = mae_base_prediction, color="mae_base_prediction")) +
+  labs(x= 'Index', y ='MAE',color = "Legend") +
+  scale_color_manual(values=colors) +
+  scale_y_continuous()
+```
+
 
 ```{r mvp ggplot}
 
@@ -66,17 +90,24 @@ prediction_data <- data.frame(base_prediction, trends_prediction) %>% na.omit(ba
 
 total <- mvp %>% left_join(prediction_data, by = "row_num")
 
+pred_colors = c("Trends Prediction" = "red", "Base Prediction" = "grey", "log(mvp)"= "black")
 ggplot(total, aes(x = ymd, y = log_sales)) +
-  geom_line() +
-  geom_line(aes(y = trends_prediction), color = "red", linetype = "dotdash") +
-  geom_line(aes(y = base_prediction), color="grey") +
-  xlab('Index') +
-  ylab('log(mvp)') +
+  geom_line(aes(color = "log(mvp)")) +
+  geom_line(aes(y = trends_prediction, color = "Trends Prediction"), linetype = "dotdash") +
+  geom_line(aes(y = base_prediction, color="Base Prediction")) +
+  labs(x='Index',
+       y='log(mvp)', 
+       color="Legend") +
+  scale_color_manual(values = pred_colors) +
   scale_y_continuous()
 
 ```
 
-```{r real data from link}
+# Getting the Data from their original locations
+
+Rather than just take the author-provided data, we wanted to get the data ourselves from the Census Bureau and Google Trends. We cleaned the data and joined the mvp data together with the trends data just like we did above. The rest of the code is identical but with the new data. 
+
+```{r real data from the internet}
 #real_base <- read_tsv("base_mvp.tsv") %>% filter(JAN >= 60000)
 real_trends_mvp <- left_join(read.csv("real_trends_insurance.csv", header = T), 
                          read.csv("real_trends_trucks.csv", header = T), 
@@ -95,7 +126,7 @@ real_mvp <- left_join(real_trends_mvp, real_base_mvp, by = "ymd") %>% mutate(las
 ```
 
 
-```{r mvp model}
+```{r real mvp model}
 
 real_base_model <- lm(Value ~ last_month + last_year,  data=real_mvp)
 summary(real_base_model)
@@ -104,35 +135,63 @@ real_trends_model <- lm(Value ~ last_month + last_year + suvs + insurance,  data
 summary(real_trends_model)
 
 ```
-```{r mvp predictions}
+
+
+```{r real mvp predictions}
 real_base_prediction = c()
 real_trends_prediction = c()
+real_mae_base_prediction = c()
+real_mae_trends_prediction = c()
 
-K <- 17: nrow(real_mvp) # dates 
+K <- 17: nrow(real_mvp) # dates
+
 for (k in K) {
-  
   test_data<- real_mvp %>% filter(row_num <= k) # only uses previous data
-    model_base <- lm(log_sales ~ last_month + last_year ,  data=test_data)
-    model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance,  data=test_data)
-    
-    real_base_prediction[k] <- predict(model_base, test_data)[k]
-    real_trends_prediction[k] <- predict(model_trends, test_data)[k]
+  model_base <- lm(log_sales ~ last_month + last_year , data=test_data)
+  model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance, data=test_data)
+  
+  real_base_prediction[k] <- predict(model_base, test_data)[k]
+  real_trends_prediction[k] <- predict(model_trends, test_data)[k]
+
+  real_mae_base_prediction[k] <- mean(abs(predict(model_base, test_data)[k] - test_data$log_sales))
+  real_mae_trends_prediction[k] <- mean(abs(predict(model_trends, test_data)[k] - test_data$log_sales))
 
 }
 ```
 
-```{r mvp ggplot}
+```{r real calculating error}
+real_mae_data <- data.frame(real_mae_base_prediction, real_mae_trends_prediction) %>%   
+  na.omit(real_mae_base_prediction) %>% mutate(row_num = row_number() + 16)
+
+real_mae_total <- real_mvp %>% left_join(real_mae_data, by = "row_num")
+
+colors <- c("real_mae_trends_prediction" = "blue", "real_mae_base_prediction" = "black")
+
+ggplot(real_mae_total, aes(x = ymd, y = real_mae_base_prediction)) +
+  geom_line() +
+  geom_line(aes(y = real_mae_trends_prediction, color = "real_mae_trends_prediction"), alpha= 0.4) +
+  geom_line(aes(y = real_mae_base_prediction, color="real_mae_base_prediction")) +
+  labs(x= 'Index', y ='MAE',color = "Legend") +
+  scale_color_manual(values=colors) +
+  scale_y_continuous()
+```
+
+
+```{r real mvp ggplot}
 
 real_prediction_data <- data.frame(real_base_prediction, real_trends_prediction) %>% na.omit(real_base_prediction) %>% mutate(row_num = row_number() + 16)
 
 real_total <- real_mvp %>% left_join(real_prediction_data, by = "row_num")
 
-ggplot(real_total, aes(x = ymd, y = log_sales)) +
-  geom_line() +
-  geom_line(aes(y = real_trends_prediction), color = "red", linetype = "dotdash") +
-  geom_line(aes(y = real_base_prediction), color="grey") +
-  xlab('Index') +
-  ylab('log(mvp)') +
+pred_colors = c("Real Trends Prediction" = "red", "Real Base Prediction" = "grey", "log(mvp)"= "black")
+ggplot(total, aes(x = ymd, y = log_sales)) +
+  geom_line(aes(color = "log(mvp)")) +
+  geom_line(aes(y = real_trends_prediction, color = "Real Trends Prediction"), linetype = "dotdash") +
+  geom_line(aes(y = real_base_prediction, color="Real Base Prediction")) +
+  labs(x='Index',
+       y='log(mvp)', 
+       color="Legend") +
+  scale_color_manual(values = pred_colors) +
   scale_y_continuous()
 
 ```
