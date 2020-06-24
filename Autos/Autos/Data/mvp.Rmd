@@ -5,17 +5,16 @@ date: "6/23/2020"
 output: html_document
 ---
 
+We reproduced the findings in Predicting the Present with Google Trends with both author provided data and data we gathered independently
+<http://people.ischool.berkeley.edu/~hal/Papers/2011/ptp.pdf>
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r setup}
+```{r packages}
 library(tidyverse)
 library(scales)
 library(modelr)
