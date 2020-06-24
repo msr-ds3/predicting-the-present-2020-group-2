@@ -81,16 +81,60 @@ ggplot(total, aes(x = ymd, y = log_sales)) +
 real_trends_mvp <- left_join(read.csv("real_trends_insurance.csv", header = T), 
                          read.csv("real_trends_trucks.csv", header = T), 
                          by = "Month") %>% 
-                rename("insurance" = Geo..United.States.x, "suvs" = Geo..United.States.y) 
-real_base_mvp <- read.csv("real_base_autos.csv") 
+  rename("insurance" = Geo..United.States.x, "suvs" = Geo..United.States.y) %>% 
+  mutate(ymd2 = paste(Month, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%Y-%m-%d")) %>% 
+  select(ymd, insurance, suvs)
+
+real_base_mvp <- read.csv("real_base_autos.csv") %>% 
+  mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%b-%y-%d")) %>% select(ymd, Value)
+
+real_mvp <- left_join(real_trends_mvp, real_base_mvp, by = "ymd") %>% mutate(last_month = lag(Value), last_year = lag(Value, 12)) %>% mutate(row_num = row_number()) %>% mutate(log_sales = log(Value))
 
 ```
 
 
-```{r plot}
+```{r mvp model}
 
+real_base_model <- lm(Value ~ last_month + last_year,  data=real_mvp)
+summary(real_base_model)
+
+real_trends_model <- lm(Value ~ last_month + last_year + suvs + insurance,  data=real_mvp)
+summary(real_trends_model)
 
 ```
+```{r mvp predictions}
+real_base_prediction = c()
+real_trends_prediction = c()
 
+K <- 17: nrow(real_mvp) # dates 
+for (k in K) {
+  
+  test_data<- real_mvp %>% filter(row_num <= k) # only uses previous data
+    model_base <- lm(log_sales ~ last_month + last_year ,  data=test_data)
+    model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance,  data=test_data)
+    
+    real_base_prediction[k] <- predict(model_base, test_data)[k]
+    real_trends_prediction[k] <- predict(model_trends, test_data)[k]
+
+}
+```
+
+```{r mvp ggplot}
+
+real_prediction_data <- data.frame(real_base_prediction, real_trends_prediction) %>% na.omit(real_base_prediction) %>% mutate(row_num = row_number() + 16)
+
+real_total <- real_mvp %>% left_join(real_prediction_data, by = "row_num")
+
+ggplot(real_total, aes(x = ymd, y = log_sales)) +
+  geom_line() +
+  geom_line(aes(y = real_trends_prediction), color = "red", linetype = "dotdash") +
+  geom_line(aes(y = real_base_prediction), color="grey") +
+  xlab('Index') +
+  ylab('log(mvp)') +
+  scale_y_continuous()
+
+```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
