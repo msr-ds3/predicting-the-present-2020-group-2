@@ -1,0 +1,174 @@
+---
+title: "Testing Auto Sales Predictions"
+author: "Hasanat Jahan"
+date: "6/24/2020"
+output: html_notebook
+---
+
+```{r packages}
+library(tidyverse)
+library(scales)
+library(modelr)
+library(lubridate)
+library(dplyr)
+library(readr)
+```
+
+# Reproduce the findings based on author-provided data
+
+Read in the given data
+```{r Downloading the data}
+mvp <- read.csv("merged.csv", header=T) %>%
+    mutate(ymd = as.Date(Period, "%Y/%m/%d"))
+  
+mvp_lag <- mvp %>%
+  select(-suvs, -insurance) %>%
+  mutate(last_month = lag(sales), last_year = lag(sales, 12)) %>%
+  mutate(row_num = row_number()) %>% 
+  mutate(log_sales = log(sales)) %>%
+  mutate(ymd = as.Date(Period, "%Y/%m/%d"))
+
+```
+
+Question: Can we use a better model- with either Census Data or additional public datasets- that would beat the trends model?
+
+Subtext: One weakness of the paper "Predicting the Present with Google Trends" is that in an attempt to show the strength of the trends data, Choi and Varian use an overly simplified model for the baseline data that is easy to beat. We want to build a better model using only baseline data to demonstrate that even if the trends data is helpful, it is at best as good as more rigorous baseline models. 
+
+Additional features to consider:
+- Interest Data
+- Crude Oil Price 
+
+From the census data we can start looking at the monthly retail trade 
+```{r}
+# command used to clean if not already clean: sed -i 1,7d retail_trade.csv
+
+real_base_retail <- 
+  read.csv("retail_trade.csv", header = T) %>%
+  mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%b-%Y-%d")) %>%
+  rename("retail_value" = Value ) %>%
+  select(ymd, retail_value)
+                
+               
+real_base_retail
+
+```
+After loading in that data, let's load in the census data 
+```{r}
+# this takes the census data auto sales 
+real_base_mvp <- 
+  read.csv("real_base_autos.csv") %>% 
+  mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%b-%y-%d")) %>% 
+  mutate(last_month = lag(Value), last_year = lag(Value, 12)) %>%
+  mutate(row_num = row_number()) %>% 
+  mutate(log_sales = log(Value)) %>%
+  select(ymd, last_month, last_year, Value, log_sales, row_num)
+
+real_base_mvp
+
+
+```
+Combine the two dataframes together by ymd
+```{r}
+combined_retail_auto <- 
+  real_base_mvp %>%
+  left_join(real_base_retail, by = "ymd")
+
+combined_retail_auto
+
+```
+
+Let's try a simple model that takes the retail value and the lag auto sales
+```{r}
+simple_model <- lm(Value ~ last_month + last_year + retail_value,  data=combined_retail_auto)
+summary(real_base_model)
+```
+
+Now to compare that to the old thing we had with the test data 
+Load in the trends data 
+```{r}
+real_trends_mvp <- left_join(read.csv("real_trends_insurance.csv", header = T), 
+                         read.csv("real_trends_trucks.csv", header = T), 
+                         by = "Month") %>% 
+  rename("insurance" = Geo..United.States.x, "suvs" = Geo..United.States.y) %>% 
+  mutate(ymd2 = paste(Month, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%Y-%m-%d")) %>% 
+  select(ymd, insurance, suvs)
+
+real_trends_mvp
+
+
+combined_retail_auto_trends <- 
+  combined_retail_auto %>%
+  left_join(real_trends_mvp, by="ymd")
+
+combined_retail_auto_trends
+```
+
+Testing if there is any improvement 
+```{r}
+base_prediction = c()
+trends_prediction = c()
+mae_base_prediction = c()
+mae_trends_prediction = c()
+
+K <- 17: nrow(mvp) # dates
+
+for (k in K) {
+  test_data<- combined_retail_auto_trends %>% filter(row_num <= k) # only uses previous data
+  model_base <- lm(log_sales ~ last_month + last_year + retail_value, data=test_data)
+  model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance, data=test_data)
+  
+  base_prediction[k] <- predict(model_base, test_data)[k]
+  trends_prediction[k] <- predict(model_trends, test_data)[k]
+
+  # calculate mae for trends and baseline
+  mae_base_prediction[k] <- mean(abs(predict(model_base, test_data)[k] - test_data$log_sales))
+# calculate mae for trends and baseline
+  mae_trends_prediction[k] <- mean(abs(predict(model_trends, test_data)[k] - test_data$log_sales))
+
+}
+```
+
+Let's check the graph if there is any difference 
+```{r}
+prediction_data <- 
+  data.frame(base_prediction, trends_prediction) %>% 
+  na.omit(base_prediction) %>% 
+  mutate(row_num = row_number() + 16)
+
+total <- 
+  combined_retail_auto_trends %>% 
+  left_join(prediction_data, by = "row_num")
+
+pred_colors = c("Trends Prediction" = "red", "Base Prediction" = "grey", "log(mvp)"= "black")
+ggplot(total, aes(x = ymd, y = log_sales)) +
+  geom_line(aes(color = "log(mvp)")) +
+  geom_line(aes(y = trends_prediction, color = "Trends Prediction"), linetype = "dotdash") +
+  geom_line(aes(y = base_prediction, color="Base Prediction")) +
+  labs(x='Index',
+       y='log(mvp)', 
+       color="Legend") +
+  scale_color_manual(values = pred_colors) +
+  scale_y_continuous()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
