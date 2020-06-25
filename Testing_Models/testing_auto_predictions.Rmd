@@ -5,7 +5,10 @@ date: "6/24/2020"
 output: html_notebook
 ---
 
-```{r packages}
+# In Critique of "Predicting the Present with Google Trends" by Hyunyoung Choi and Hal Varian 
+
+
+```{r}
 library(tidyverse)
 library(scales)
 library(modelr)
@@ -14,10 +17,11 @@ library(dplyr)
 library(readr)
 ```
 
-# Reproduce the findings based on author-provided data
+## Reproduce the findings based on author-provided data
 
 Read in the given data
-```{r Downloading the data}
+```{r}
+
 mvp <- read.csv("merged.csv", header=T) %>%
     mutate(ymd = as.Date(Period, "%Y/%m/%d"))
   
@@ -30,6 +34,9 @@ mvp_lag <- mvp %>%
 
 ```
 
+
+
+## Question
 Question: Can we use a better model- with either Census Data or additional public datasets- that would beat the trends model?
 
 Subtext: One weakness of the paper "Predicting the Present with Google Trends" is that in an attempt to show the strength of the trends data, Choi and Varian use an overly simplified model for the baseline data that is easy to beat. We want to build a better model using only baseline data to demonstrate that even if the trends data is helpful, it is at best as good as more rigorous baseline models. 
@@ -37,8 +44,15 @@ Subtext: One weakness of the paper "Predicting the Present with Google Trends" i
 Additional features to consider:
 - Interest Data
 - Crude Oil Price 
+- Consumer Price Index
 
-From the census data we can start looking at the monthly retail trade 
+
+## Exploratory Data Analysis
+
+As we do not have direct data for consumer price index from the census, another likely indicator of how much people are spending and willing to spend on buying a car can be the retail value of the month. Our intuition is that if people are spending more money, they have more money in their hand to spend and they are more likely buy an automobile they might have needed. 
+
+From the census data we can start looking at the monthly retail trade
+
 ```{r}
 # command used to clean if not already clean: sed -i 1,7d retail_trade.csv
 
@@ -46,13 +60,15 @@ real_base_retail <-
   read.csv("retail_trade.csv", header = T) %>%
   mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
   mutate(ymd = as.Date(ymd2, "%b-%Y-%d")) %>%
-  rename("retail_value" = Value ) %>%
-  select(ymd, retail_value)
+  rename("Retail" = Value ) %>%
+  select(ymd, Retail) %>% 
+  filter(ymd < "2012-01-01")
                 
                
 real_base_retail
 
 ```
+
 After loading in that data, let's load in the census data 
 ```{r}
 # this takes the census data auto sales 
@@ -73,37 +89,45 @@ Combine the two dataframes together by ymd
 ```{r}
 combined_retail_auto <- 
   real_base_mvp %>%
-  left_join(real_base_retail, by = "ymd")
+  left_join(real_base_retail, by = "ymd") %>%
+  filter(ymd < "2015-01-01")
 
-combined_retail_auto
+combined_retail_auto 
+  
 
 ```
 
 Let's try a simple model that takes the retail value and the lag auto sales
 ```{r}
 simple_model <- lm(Value ~ last_month + last_year + retail_value,  data=combined_retail_auto)
-summary(real_base_model)
+summary(simple_model)
 ```
 
 Now to compare that to the old thing we had with the test data 
 Load in the trends data 
 ```{r}
 real_trends_mvp <- left_join(read.csv("real_trends_insurance.csv", header = T), 
-                         read.csv("real_trends_trucks.csv", header = T), 
-                         by = "Month") %>% 
+                         read.csv("real_trends_trucks.csv",
+                                  header = T), by = "Month") %>% 
   rename("insurance" = Geo..United.States.x, "suvs" = Geo..United.States.y) %>% 
   mutate(ymd2 = paste(Month, "-01", sep="")) %>% 
   mutate(ymd = as.Date(ymd2, "%Y-%m-%d")) %>% 
   select(ymd, insurance, suvs)
 
-real_trends_mvp
 
 
+#real_trends_mvp
+
+# this adds the trends data to the real auto and retail data 
 combined_retail_auto_trends <- 
   combined_retail_auto %>%
-  left_join(real_trends_mvp, by="ymd")
+  left_join(real_trends_mvp, by="ymd") %>%
+  filter(ymd < "2012-01-01")
+  
 
 combined_retail_auto_trends
+
+
 ```
 
 Testing if there is any improvement 
@@ -152,19 +176,202 @@ ggplot(total, aes(x = ymd, y = log_sales)) +
        color="Legend") +
   scale_color_manual(values = pred_colors) +
   scale_y_continuous()
+
+
+
 ```
 
+Can we calculate the RMSE of the model?
+```{r}
+rmse(simple_model, combined_retail_auto)
 
 
+combined_retail_auto <- 
+  combined_retail_auto %>%
+  add_predictions(simple_model)
 
 
+# Let's plot how the model does with predictions and the actual value 
+combined_retail_auto %>%
+  ggplot(aes(x=pred, y=Value)) +
+  geom_point() +
+  geom_abline(linetype = "dashed") +
+  xlab("Predicted") +
+  ylab("Actual")
+
+```
+For this simple model, the RMSE is 4442.593 and plotting the predicted with the actual value shows a diagonal prediction line running through the data. Which indicates that the model is predicting well. However, does it improve MAE compared to the trends data?
+
+Now to compare MAE
+```{r}
+
+real_mae_data <- data.frame(real_mae_base_prediction, real_mae_trends_prediction) %>% 
+  na.omit(real_mae_base_prediction) %>% 
+  mutate(row_num = row_number() + 16)
+
+real_mae_total <- 
+  combined_retail_auto_trends %>% 
+  left_join(real_mae_data, by = "row_num")
+
+colors <- c("real_mae_trends_prediction" = "blue", "real_mae_base_prediction" = "black")
+
+ggplot(real_mae_total, aes(x = ymd, y = real_mae_base_prediction)) +
+  geom_line() +
+  geom_line(aes(y = real_mae_trends_prediction, color = "real_mae_trends_prediction"), alpha= 0.4) +
+  geom_line(aes(y = real_mae_base_prediction, color="real_mae_base_prediction")) +
+  labs(x= 'Index', y ='MAE',color = "Legend") +
+  scale_color_manual(values=colors) +
+  scale_y_continuous()
+```
+
+Now gathering more datasets from the census including all auto sales and gas prices  
+```{r}
+# census data for the autos
+base_mvp <- read.csv("real_base_autos.csv") %>%
+  rename("Sales" = Value) %>% 
+  mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%b-%y-%d")) %>% select(ymd, Sales)
+
+ 
+autos <- read.csv("auto_and_other_motor_vehicles.csv") %>% 
+  rename("Autos" = Value) %>% 
+  mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%b-%Y-%d")) %>% select(ymd, Autos)
+
+gas <- read.csv("gas_stations.csv") %>% 
+  rename("Gas" = Value) %>% 
+  mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%b-%Y-%d")) %>% select(ymd, Gas)
+
+mvp <- left_join(autos, base_mvp, by = "ymd") %>%
+  left_join(real_base_retail, by = "ymd") %>%
+  left_join(gas, base_mvp, by = "ymd") %>% 
+  mutate(last_month = lag(Sales), last_year = lag(Sales, 12)) %>% 
+  mutate(row_num = row_number()) %>% 
+  mutate(log_sales = log(Sales)) %>% #include the lags
+  mutate(last_month_gas = lag(Gas, 1)) %>%
+  mutate(last_year_gas = lag(Gas, 12)) %>%
+  mutate(last_month_auto = lag(Autos, 1)) %>%
+  mutate(last_year_auto = lag(Autos, 12)) %>%
+  mutate(last_month_retail = lag(Retail, 1)) %>%
+  mutate(last_year_retail = lag(Retail, 12)) %>%
+  filter(ymd < "2012-01-01")
+
+```
+
+I was on trying to join grocery sales to this and applying lasso regularization to weed out the features that would be important to the model 
+To use lasso regression we can use the glmnet function with alpha = 1
+
+Reference used for implementation: https://daviddalpiaz.github.io/r4sl/regularization.html#lasso
+
+```{r}
+
+model_02 <- lm(log_sales ~ last_month + last_year + last_month_auto + last_year_auto +  last_month_gas + last_year_gas + last_month_retail + last_year_retail ,  data=mvp)
+
+summary(model_02)
 
 
+```
+We chart this to see how this model with more indicators does compared to the trends data and the actual data
+```{r}
+base_prediction = c()
+trends_prediction = c()
+mae_base_prediction = c()
+mae_trends_prediction = c()
+
+# create a combined dataset for real trends data and real census data
+combined <- 
+  mvp %>%
+  left_join(real_trends_mvp, by="ymd") %>%
+  filter(ymd < "2012-01-01")
+  
+
+K <- 17: nrow(mvp) # dates
+
+for (k in K) {
+  test_data<- combined %>% filter(row_num <= k) # only uses previous data
+  model_base <- lm(log_sales ~ last_month + last_year + last_month_auto + last_year_auto +  last_month_gas + last_year_gas + last_month_retail + last_year_retail, data=test_data)
+  model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance, data=test_data)
+  
+  base_prediction[k] <- predict(model_base, test_data)[k]
+  trends_prediction[k] <- predict(model_trends, test_data)[k]
+
+  # calculate mae for trends and baseline
+  mae_base_prediction[k] <- mean(abs(predict(model_base, test_data)[k] - test_data$log_sales))
+# calculate mae for trends and baseline
+  mae_trends_prediction[k] <- mean(abs(predict(model_trends, test_data)[k] - test_data$log_sales))
+
+}
+```
+Now let's graph it again to see if there is a difference 
+```{r}
+prediction_data <- 
+  data.frame(base_prediction, trends_prediction) %>% 
+  na.omit(base_prediction) %>% 
+  mutate(row_num = row_number() + 16)
+
+# this aligns the base and trend predictions with the original data we used to make the predictions
+total <- 
+  combined %>% 
+  left_join(prediction_data, by = "row_num")
+
+pred_colors = c("Trends Prediction" = "red", "Base Prediction" = "grey", "log(mvp)"= "black")
+ggplot(total, aes(x = ymd, y = log_sales)) +
+  geom_line(aes(color = "log(mvp)")) +
+  geom_line(aes(y = trends_prediction, color = "Trends Prediction"), linetype = "dotdash") +
+  geom_line(aes(y = base_prediction, color="Base Prediction")) +
+  labs(x='Index',
+       y='log(mvp)', 
+       color="Legend") +
+  scale_color_manual(values = pred_colors) +
+  scale_y_continuous()
 
 
+```
+
+Here, after adding a few more features, it seems from the graph that our model aligns almost nearly on the actual line for the actual values, specially for the earlier years and it even accounts for anomaly in values that the recession caused, which Choi and Varian claimed would be better predicted with the Google Trends data for "nowcasting"
+
+Checking the summary of the model: 
+```{r}
+rmse(model_02, mvp)
+summary(model_02)
+```
+And we get an R-squared value of 0.8185 and a RMSE value of 0.06141268 adjusted to the log scale. 
+
+Critiquing Choi and Varian's Paper,  comparing percentage change as improvement in MAE from base model to trends model gives a skewed representation of the significance of the change. Plotting the MAE of using the trends data and our new simple baseline model gives a better picture for comparison to the model's performance. 
+```{r}
+
+real_mae_data <- 
+  data.frame(real_mae_base_prediction, real_mae_trends_prediction) %>% 
+  na.omit(real_mae_base_prediction) %>% 
+  mutate(row_num = row_number() + 16)
+
+real_mae_total <- 
+  combined %>% 
+  left_join(real_mae_data, by = "row_num")
+
+colors <- c("real_mae_trends_prediction" = "blue", "real_mae_base_prediction" = "black")
+
+ggplot(real_mae_total, aes(x = ymd, y = real_mae_base_prediction)) +
+  geom_line() +
+  geom_line(aes(y = real_mae_trends_prediction, color = "real_mae_trends_prediction"), alpha= 0.4) +
+  geom_line(aes(y = real_mae_base_prediction, color="real_mae_base_prediction")) +
+  labs(x= 'Index', y ='MAE',color = "Legend") +
+  scale_color_manual(values=colors) +
+  scale_y_continuous()
+
+```
+From this graph, between the years 2005 to 2009, the base predictions that a similar or sometimes a little higher MAE. However, after 2009, the MAE for the baseline model is almost consistently lower than the trends prediction. But taking the average of the effect's it would seem that the baseline is not doign significantly better than the trends data. 
+
+One conclusion to draw from this could be that having a baseline of census data does not actually do better than taking search query intensity from Google Trends data. 
+
+However, it may also be that as with Choi and Varian, we are not employing effective enough features. 
 
 
-
+## Takeaway 
+However, we still draw the conclusion that a simple baseline model as this seems to perform about the same as the baseline model that Choi and Varian posed with the trends data. Pertaining to Choi and Varian's trends model,  even if the trends data is helpful, it is at best as good as more rigorous baseline models. 
+If expand on the using public data sets, I think we should keep in mind that the trends model was also very simple in terms of the search queries used, so beating that model with a ton more public data would not be a fair comparison on our side this time, we would be doing with baseline what we assess Choi and Varian did with trends. 
+This can be disproved if there are other terms we can explore with the trends data that would do better than the baseline census model comparing similar features. 
 
 
 
