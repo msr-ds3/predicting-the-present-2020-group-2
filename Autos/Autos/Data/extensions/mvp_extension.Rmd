@@ -1,0 +1,118 @@
+---
+title: "Group2.Rmd"
+author: "Tamar Yastrab & Hasanat Jahan"
+date: "6/23/2020"
+output: html_document
+---
+
+We reproduced the findings in Predicting the Present with Google Trends with both author provided data and data we gathered independently
+<http://people.ischool.berkeley.edu/~hal/Papers/2011/ptp.pdf>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r packages}
+library(tidyverse)
+library(scales)
+library(modelr)
+library(lubridate)
+library(dplyr)
+```
+
+# Reproduce the findings based on author-provided data
+
+```{r real data from the internet}
+
+base_mvp <- read.csv("real_base_autos.csv") %>%
+  rename("Sales" = Value) %>% 
+  mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%b-%y-%d")) %>% select(ymd, Sales)
+
+autos <- read.csv("autos.csv") %>% 
+  rename("Autos" = Value) %>% 
+  mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%b-%Y-%d")) %>% select(ymd, Autos)
+
+gas <- read.csv("gas_stations.csv") %>% 
+  rename("Gas" = Value) %>% 
+  mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
+  mutate(ymd = as.Date(ymd2, "%b-%Y-%d")) %>% select(ymd, Gas)
+
+mvp <- left_join(autos, base_mvp, by = "ymd") %>% left_join(gas, base_mvp, by = "ymd") %>% mutate(last_month = lag(Sales), last_year = lag(Sales, 12)) %>% mutate(row_num = row_number()) %>% mutate(log_sales = log(Sales))
+```
+
+
+```{r real mvp model}
+
+base_model <- lm(Sales ~ last_month + last_year,  data=mvp)
+summary(base_model)
+
+real_trends_model <- lm(Value ~ last_month + last_year + suvs + insurance,  data=real_mvp)
+summary(real_trends_model)
+
+```
+
+
+```{r real mvp predictions}
+real_base_prediction = c()
+real_trends_prediction = c()
+real_mae_base_prediction = c()
+real_mae_trends_prediction = c()
+
+K <- 17: nrow(real_mvp) # dates
+
+for (k in K) {
+  test_data<- real_mvp %>% filter(row_num <= k) # only uses previous data
+  model_base <- lm(log_sales ~ last_month + last_year , data=test_data)
+  model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance, data=test_data)
+  
+  real_base_prediction[k] <- predict(model_base, test_data)[k]
+  real_trends_prediction[k] <- predict(model_trends, test_data)[k]
+
+  real_mae_base_prediction[k] <- mean(abs(predict(model_base, test_data)[k] - test_data$log_sales))
+  real_mae_trends_prediction[k] <- mean(abs(predict(model_trends, test_data)[k] - test_data$log_sales))
+
+}
+```
+
+```{r real calculating error}
+real_mae_data <- data.frame(real_mae_base_prediction, real_mae_trends_prediction) %>%   
+  na.omit(real_mae_base_prediction) %>% mutate(row_num = row_number() + 16)
+
+real_mae_total <- real_mvp %>% left_join(real_mae_data, by = "row_num")
+
+colors <- c("real_mae_trends_prediction" = "blue", "real_mae_base_prediction" = "black")
+
+ggplot(real_mae_total, aes(x = ymd, y = real_mae_base_prediction)) +
+  geom_line() +
+  geom_line(aes(y = real_mae_trends_prediction, color = "real_mae_trends_prediction"), alpha= 0.4) +
+  geom_line(aes(y = real_mae_base_prediction, color="real_mae_base_prediction")) +
+  labs(x= 'Index', y ='MAE',color = "Legend") +
+  scale_color_manual(values=colors) +
+  scale_y_continuous()
+```
+
+
+```{r real mvp ggplot}
+
+real_prediction_data <- data.frame(real_base_prediction, real_trends_prediction) %>% na.omit(real_base_prediction) %>% mutate(row_num = row_number() + 16)
+
+real_total <- real_mvp %>% left_join(real_prediction_data, by = "row_num")
+
+pred_colors = c("Real Trends Prediction" = "red", "Real Base Prediction" = "grey", "log(mvp)"= "black")
+ggplot(total, aes(x = ymd, y = log_sales)) +
+  geom_line(aes(color = "log(mvp)")) +
+  geom_line(aes(y = real_trends_prediction, color = "Real Trends Prediction"), linetype = "dotdash") +
+  geom_line(aes(y = real_base_prediction, color="Real Base Prediction")) +
+  labs(x='Index',
+       y='log(mvp)', 
+       color="Legend") +
+  scale_color_manual(values = pred_colors) +
+  scale_y_continuous()
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
