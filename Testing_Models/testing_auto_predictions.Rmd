@@ -438,6 +438,15 @@ ggplot(real_mae_total, aes(x = ymd, y = real_mae_base_prediction)) +
 ### Things to Note
 From this graph, between the years 2005 to 2009, the base predictions that a similar or sometimes a little higher MAE. However, after 2009, the MAE for the baseline model is almost consistently lower than the trends prediction. But taking the average of the effect's it would seem that the baseline is not doing significantly better than the trends data. 
 
+Let's compare the average MAE for the trends model and the baseline model 
+
+```{r}
+# for the baseline model
+mean(mae_base_prediction, na.rm = T)
+# for the trends model 
+mean(mae_trends_prediction, na.rm = T)
+```
+The average MAE for the trends model is very similar to the baseline model.
 One conclusion to draw from this could be that having a baseline of census data does not actually do better than taking search query intensity from Google Trends data. 
 
 However, it may also be that as with Choi and Varian, we are not employing effective enough features. 
@@ -445,8 +454,11 @@ However, it may also be that as with Choi and Varian, we are not employing effec
 
 ## Takeaway 
 However, we still draw the conclusion that a simple baseline model as this seems to perform about the same as the baseline model that Choi and Varian posed with the trends data. Pertaining to Choi and Varian's trends model,  even if the trends data is helpful, it is at best as good as more rigorous baseline models. 
+
 If expand on the using public data sets, I think we should keep in mind that the trends model was also very simple in terms of the search queries used, so beating that model with a ton more public data would not be a fair comparison on our side this time, we would be doing with baseline what we assess Choi and Varian did with trends. 
 This can be disproved if there are other terms we can explore with the trends data that would do better than the baseline census model comparing similar features. 
+
+
 
 
 ## Direction for Future Research 
