@@ -1,12 +1,18 @@
 ---
-title: "Group2.Rmd"
+title: "mvp_extensions.Rmd"
 author: "Tamar Yastrab & Hasanat Jahan"
 date: "6/23/2020"
 output: html_document
 ---
 
-We reproduced the findings in Predicting the Present with Google Trends with both author provided data and data we gathered independently
+We extended the findings in Predicting the Present with Google Trends
 <http://people.ischool.berkeley.edu/~hal/Papers/2011/ptp.pdf>
+
+# Question
+Question: Can we use a better model- with either Census Data or additional public datasets- that would beat the trends model?
+One weakness of the paper is Choi and Varian use an overly simplified model for the baseline data to demonstrate the strength of the trends data that is too easy to beat. We built a better model using only baseline data to demonstrate that even if the trends data is helpful, it is at best as good as the baseline models.
+
+We consider Census Bureau data for other automotive sales and gas stations. 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -22,7 +28,7 @@ library(lubridate)
 library(dplyr)
 ```
 
-# Reproduce the findings based on author-provided data
+We take the real baseline (auto sales) and combine i twith additional CB data. For each feature, we set up for rolling window forecasting and create columns of values from the previous month and current month of the previous year. 
 
 ```{r real data from the internet}
 
@@ -41,55 +47,56 @@ gas <- read.csv("gas_stations.csv") %>%
   mutate(ymd2 = paste(Period, "-01", sep="")) %>% 
   mutate(ymd = as.Date(ymd2, "%b-%Y-%d")) %>% select(ymd, Gas)
 
-mvp <- left_join(autos, base_mvp, by = "ymd") %>% left_join(gas, base_mvp, by = "ymd") %>% mutate(last_month = lag(Sales), last_year = lag(Sales, 12)) %>% mutate(row_num = row_number()) %>% mutate(log_sales = log(Sales))
+mvp <- left_join(autos, base_mvp, by = "ymd") %>% left_join(gas, base_mvp, by = "ymd") %>% mutate(last_month_sales = lag(Sales), last_year_sales = lag(Sales, 12), last_month_autos = lag(Autos), last_month_gas = lag(Gas), last_year_autos = lag(Autos, 12), last_year_gas = lag(Gas, 12)) %>% mutate(row_num = row_number()) %>% mutate(log_sales = log(Sales)) %>% filter(ymd <= "2011-07-01")
 ```
 
-
+We set up two models. The first is the standard baseline without additional features and second is the baseline with the additional CB data. 
 ```{r real mvp model}
 
-base_model <- lm(Sales ~ last_month + last_year,  data=mvp)
+base_model <- lm(Sales ~ last_month_sales + last_year_sales,  data=mvp)
 summary(base_model)
 
-real_trends_model <- lm(Value ~ last_month + last_year + suvs + insurance,  data=real_mvp)
-summary(real_trends_model)
+fancy_model <- lm(Sales ~ last_month_sales + last_year_sales + last_month_autos + last_month_gas + last_year_autos + last_year_gas,  data=mvp)
+summary(fancy_model)
 
 ```
 
-
+Test the rpedictions made by this model. 
 ```{r real mvp predictions}
-real_base_prediction = c()
-real_trends_prediction = c()
-real_mae_base_prediction = c()
-real_mae_trends_prediction = c()
+base_prediction = c()
+fancy_prediction = c()
+mae_base_prediction = c()
+mae_fancy_prediction = c()
 
-K <- 17: nrow(real_mvp) # dates
+K <- 17: nrow(mvp) # dates
 
 for (k in K) {
-  test_data<- real_mvp %>% filter(row_num <= k) # only uses previous data
-  model_base <- lm(log_sales ~ last_month + last_year , data=test_data)
-  model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance, data=test_data)
+  test_data<- mvp %>% filter(row_num <= k) # only uses previous data
+  model_base <- lm(log_sales ~ last_month_sales + last_year_sales , data=test_data)
+  model_fancy <- lm(log_sales ~ last_month_sales + last_year_sales + last_month_autos + last_year_autos + last_year_gas + last_month_gas, data=test_data)
   
-  real_base_prediction[k] <- predict(model_base, test_data)[k]
-  real_trends_prediction[k] <- predict(model_trends, test_data)[k]
+  base_prediction[k] <- predict(model_base, test_data)[k]
+  fancy_prediction[k] <- predict(model_fancy, test_data)[k]
 
-  real_mae_base_prediction[k] <- mean(abs(predict(model_base, test_data)[k] - test_data$log_sales))
-  real_mae_trends_prediction[k] <- mean(abs(predict(model_trends, test_data)[k] - test_data$log_sales))
+  mae_base_prediction[k] <- mean(abs(predict(model_base, test_data)[k] - test_data$log_sales))
+  mae_fancy_prediction[k] <- mean(abs(predict(model_fancy, test_data)[k] - test_data$log_sales))
 
 }
 ```
 
+Analyze the error of the result
 ```{r real calculating error}
-real_mae_data <- data.frame(real_mae_base_prediction, real_mae_trends_prediction) %>%   
-  na.omit(real_mae_base_prediction) %>% mutate(row_num = row_number() + 16)
+mae_data <- data.frame(mae_base_prediction, mae_fancy_prediction) %>%   
+  na.omit(mae_base_prediction) %>% mutate(row_num = row_number() + 16)
 
-real_mae_total <- real_mvp %>% left_join(real_mae_data, by = "row_num")
+mae_total <- mvp %>% left_join(mae_data, by = "row_num")
 
-colors <- c("real_mae_trends_prediction" = "blue", "real_mae_base_prediction" = "black")
+colors <- c("mae_fancy_prediction" = "blue", "mae_base_prediction" = "black")
 
-ggplot(real_mae_total, aes(x = ymd, y = real_mae_base_prediction)) +
+ggplot(mae_total, aes(x = ymd, y = mae_base_prediction)) +
   geom_line() +
-  geom_line(aes(y = real_mae_trends_prediction, color = "real_mae_trends_prediction"), alpha= 0.4) +
-  geom_line(aes(y = real_mae_base_prediction, color="real_mae_base_prediction")) +
+  geom_line(aes(y = mae_fancy_prediction, color = "mae_fancy_prediction"), alpha= 0.4) +
+  geom_line(aes(y = mae_base_prediction, color="mae_base_prediction")) +
   labs(x= 'Index', y ='MAE',color = "Legend") +
   scale_color_manual(values=colors) +
   scale_y_continuous()
@@ -98,15 +105,14 @@ ggplot(real_mae_total, aes(x = ymd, y = real_mae_base_prediction)) +
 
 ```{r real mvp ggplot}
 
-real_prediction_data <- data.frame(real_base_prediction, real_trends_prediction) %>% na.omit(real_base_prediction) %>% mutate(row_num = row_number() + 16)
+prediction_data <- data.frame(base_prediction, fancy_prediction) %>% na.omit(base_prediction) %>% mutate(row_num = row_number() + 16)
+total <- mvp %>% left_join(prediction_data, by = "row_num")
 
-real_total <- real_mvp %>% left_join(real_prediction_data, by = "row_num")
-
-pred_colors = c("Real Trends Prediction" = "red", "Real Base Prediction" = "grey", "log(mvp)"= "black")
+pred_colors = c("Fancy Prediction" = "red", "Base Prediction" = "grey", "log(mvp)"= "black")
 ggplot(total, aes(x = ymd, y = log_sales)) +
   geom_line(aes(color = "log(mvp)")) +
-  geom_line(aes(y = real_trends_prediction, color = "Real Trends Prediction"), linetype = "dotdash") +
-  geom_line(aes(y = real_base_prediction, color="Real Base Prediction")) +
+  geom_line(aes(y = fancy_prediction, color = "Fancy Prediction"), linetype = "dotdash") +
+  geom_line(aes(y = base_prediction, color="Base Prediction")) +
   labs(x='Index',
        y='log(mvp)', 
        color="Legend") +
@@ -114,5 +120,29 @@ ggplot(total, aes(x = ymd, y = log_sales)) +
   scale_y_continuous()
 
 ```
+
+Computing the RMSE
+```{r RMSE}
+rmse(base_prediction, fancy_prediction)
+
+```
+```{r RMSE}
+combined_model <- 
+  base_prediction %>%
+  add_predictions(fancy_prediction) #This isn't working
+
+# Let's plot how the model does with predictions and the actual value 
+combined_model %>%
+  ggplot(aes(x=pred, y=Sales)) +
+  geom_point() +
+  geom_abline(linetype = "dashed") +
+  xlab("Predicted") +
+  ylab("Actual")
+```
+#Findings: 
+Our model which uutilizes additional census data is able to match (and slightly beat) the performance of the trends data. Had Varian and Choi made a slightly more robust model for their baseline, the trends data would not have been shown to be significant. 
+
+# Takeaway
+Our improved perfomrs as well as the trends data Choi and Varian present. However, the search terms that were used were not particularly expansive, so perhaps a more fair comparison would be using additional search terms to parallel added CB features and see how the models compare. 
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
