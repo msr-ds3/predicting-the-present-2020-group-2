@@ -1,6 +1,6 @@
 ---
-title: "Exploring Extensions to Predicting the Present with Google Trends"
-author: "Hasanat Jahan and Tamar Yastrab"
+title: "Exploring an Extension of Predicting the Present with Google Trends by Improving Baseline Feature Selection"
+author: "Hasanat Jahan & Tamar Yastrab"
 date: "6/24/2020"
 output: html_notebook
 ---
@@ -267,7 +267,7 @@ mvp <- left_join(autos, base_mvp, by = "ymd") %>%
 
 ```{r}
 
-model_02 <- lm(log_sales ~ last_month + last_year + last_month_auto + last_year_auto +  last_month_gas + last_year_gas + last_month_retail + last_year_retail ,  data=mvp)
+model_02 <- lm(Sales ~ last_month + last_year + last_month_auto + last_year_auto +  last_month_gas + last_year_gas + last_month_retail + last_year_retail ,  data=combined)
 
 summary(model_02)
 
@@ -339,6 +339,75 @@ summary(model_02)
 ```
 And we get an R-squared value of 0.8185 and a RMSE value of 0.06141268 adjusted to the log scale. 
 
+
+### Reducing the Number of Features - Can a simpler baseline model do even better? 
+Reducing the number of features on the baseline model may actually even improve performance as opposed to the trends data.
+```{r}
+
+model_03 <- lm(log_sales ~ last_month + last_year + last_month_auto + last_year_auto + last_month_gas + last_year_gas, data = combined)
+
+summary(model_03)
+
+```
+
+It would seem from this that a less complicated of a model performs better than the trends model that Choi and Varian have presented. 
+
+```{r}
+base_prediction = c()
+trends_prediction = c()
+mae_base_prediction = c()
+mae_trends_prediction = c()
+
+
+K <- 17: nrow(mvp) # dates
+
+for (k in K) {
+  test_data <- combined %>% filter(row_num <= k) # only uses previous data
+  model_base <- lm(log_sales ~ last_month + last_year + last_month_auto + last_year_auto +  last_month_gas + last_year_gas , data=test_data)
+  model_trends <- lm(log_sales ~ last_month + last_year + suvs + insurance, data=test_data)
+  
+  base_prediction[k] <- predict(model_base, test_data)[k]
+  trends_prediction[k] <- predict(model_trends, test_data)[k]
+
+  # calculate mae for trends and baseline
+  mae_base_prediction[k] <- mean(abs(predict(model_base, test_data)[k] - test_data$log_sales))
+# calculate mae for trends and baseline
+  mae_trends_prediction[k] <- mean(abs(predict(model_trends, test_data)[k] - test_data$log_sales))
+
+}
+```
+Comparing the MAE and the data fit we can see 
+```{r}
+# this combines the plot one next to the other 
+# par(mfrow = c(1,2))
+
+prediction_data <- 
+  data.frame(base_prediction, trends_prediction) %>% 
+  na.omit(base_prediction) %>% 
+  mutate(row_num = row_number() + 16)
+
+# this aligns the base and trend predictions with the original data we used to make the predictions
+total <- 
+  combined %>% 
+  left_join(prediction_data, by = "row_num")
+
+pred_colors = c("Trends Prediction" = "red", "Base Prediction" = "grey", "log(mvp)"= "black")
+ggplot(total, aes(x = ymd, y = log_sales)) +
+  geom_line(aes(color = "log(mvp)")) +
+  geom_line(aes(y = trends_prediction, color = "Trends Prediction"), linetype = "dotdash") +
+  geom_line(aes(y = base_prediction, color="Base Prediction")) +
+  labs(x='Index',
+       y='log(mvp)', 
+       color="Legend") +
+  scale_color_manual(values = pred_colors) +
+  scale_y_continuous()
+
+```
+
+
+
+
+
 Critiquing Choi and Varian's Paper,  comparing percentage change as improvement in MAE from base model to trends model gives a skewed representation of the significance of the change. Plotting the MAE of using the trends data and our new simple baseline model gives a better picture for comparison to the model's performance. 
 ```{r}
 
@@ -363,8 +432,11 @@ ggplot(real_mae_total, aes(x = ymd, y = real_mae_base_prediction)) +
 
 ```
 
+
+
+
 ### Things to Note
-From this graph, between the years 2005 to 2009, the base predictions that a similar or sometimes a little higher MAE. However, after 2009, the MAE for the baseline model is almost consistently lower than the trends prediction. But taking the average of the effect's it would seem that the baseline is not doign significantly better than the trends data. 
+From this graph, between the years 2005 to 2009, the base predictions that a similar or sometimes a little higher MAE. However, after 2009, the MAE for the baseline model is almost consistently lower than the trends prediction. But taking the average of the effect's it would seem that the baseline is not doing significantly better than the trends data. 
 
 One conclusion to draw from this could be that having a baseline of census data does not actually do better than taking search query intensity from Google Trends data. 
 
@@ -377,7 +449,7 @@ If expand on the using public data sets, I think we should keep in mind that the
 This can be disproved if there are other terms we can explore with the trends data that would do better than the baseline census model comparing similar features. 
 
 
-### Direction for Future Research 
+## Direction for Future Research 
 To extend this investigation further and further verify or deny the findings, we can look to see if this pattern holds using a model with trends data which has more closely related and relevant features for the baseline model using Census data and other public datasets. 
 We can also investigate if these patterns hold over an extended period of time, for instance, up to the present and if any model does better, worse or the same. 
 We could also try to see if we can extend our models to do forecasting instead of the "nowcasting" that the original authors suggest and peer into the future of auto sales. 
